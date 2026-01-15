@@ -9,7 +9,7 @@ import re
 import sqlite3
 import json
 from datetime import datetime, timedelta, timezone
-from dotenv import load_dotenv  # <--- Loads the secret file
+from dotenv import load_dotenv  
 
 LOG = logging.getLogger('hevy-sync')
 FORMATTER = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
@@ -53,7 +53,7 @@ class HevySync:
     csv_file = ''
     searchdate = ''
 
-    def __init__(self, username="default"):
+    def __init__(self, username: str ="default"):
         LOG.info(f"HevyDownloader class created ")
         load_dotenv()
         self.API_KEY = os.getenv("HEVY_API_KEY")
@@ -65,30 +65,62 @@ class HevySync:
     'squat': 'Legs', 'lunge': 'Legs', 'leg press': 'Legs', 'leg extension': 'Legs', 
     'leg curl': 'Legs', 'calf': 'Legs', 'glute': 'Legs', 'hip': 'Legs', 
     'deadlift': 'Legs', 'rdl': 'Legs', 'stiff-legged': 'Legs', 'swing': 'Legs',
+    "Wall Sit": "Legs", "Dumbbell Step Up": "Legs", "Step Up": "Legs", "Barbell Step Up": "Legs",
+    "1-Step Box Jump": "Legs", "Box Jump": "Legs", 'sled push': 'Legs',
+
+    # --- GLUTES ---
+    'hip thrust': 'Glutes', 'glute bridge': 'Glutes', 'kickback': 'Glutes',
+    "Balance Trainer Reverse Hyperextension": "Glutes", "Stability Ball Hyperextension": "Glutes",
+    "Dumbbell Good Morning": "Glutes", "Kettlebell Good Morning": "Glutes", "Good Morning (Barbell)": "Glutes",
+    "Cable Pull Through": "Glutes", "Single Leg Kickback": "Glutes", 
 
     # --- CHEST ---
     'bench press': 'Chest', 'chest press': 'Chest', 'push up': 'Chest', 
     'fly': 'Chest', 'hammerstrength chest': 'Chest', 'pec': 'Chest',
+    "Floor Press (Dumbbell)": "Chest", "Single Arm Cable Press": "Chest",
 
     # --- BACK ---
     'row': 'Back', 'pull up': 'Back', 'chin up': 'Back', 'lat pulldown': 'Back', 
     'back extension': 'Back', 'superman': 'Back', 'bird dog': 'Back', 'pullover': 'Back',
+    "Prone W’s": "Back", "Prone T’s": "Back", "Prone Y’s": "Back", "Rack Pulls": "Back",
+    "Reverse Grip Pull Down": "Back",
 
     # --- SHOULDERS ---
     'overhead press': 'Shoulders', 'shoulder press': 'Shoulders', 'lateral raise': 'Shoulders', 
     'front raise': 'Shoulders', 'rear delt': 'Shoulders', 'face pull': 'Shoulders', 'shrug': 'Shoulders',
+    "Half Kneeling DB Press": "Shoulders", "Arnold Press (Dumbbell)": "Shoulders", "Landmine Press": "Shoulders",
+    "Front Plate Raise": "Shoulders", "Forward Arm Circle": "Shoulders", "Db Trap Raise": "Shoulders", 
+    "Face Down Plate Neck Resistance": "Shoulders", "Kettlebell Jerk": "Shoulders",
 
     # --- ARMS ---
     'bicep': 'Arms', 'curl': 'Arms', 'tricep': 'Arms', 'pushdown': 'Arms', 
     'dip': 'Arms', 'skull crusher': 'Arms', 'hammer curl': 'Arms',
+    "Skullcrusher (Dumbbell)": "Arms", "Dumbbell Kickbacks": "Arms", "Battle Ropes": "Arms",
+    "Cable Bicep Curl": "Arms", "Cable Tricep Extension": "Arms",
 
-    # --- CORE & GRIP ---
-    'plank': 'Core', 'crunch': 'Core', 'leg raise': 'Core', 'russian twist': 'Core', 
-    'abs': 'Core', 'farmers walk': 'Core', 'carry': 'Core', 'dead hang': 'Core',
+    # --- Core ---
+    'plank': 'Core', 'crunch': 'Core', 'leg raise': 'Core', 'russian twist': 'Core', 'abs': 'Core',
+    "Balance Trainer Braced Bicycle Kicks": "Core","Balance Trainer Braced Frog Kicks": "Core",
+    "Balance Trainer Mountain Climber": "Core","Balance Trainer Lying Toe Taps": "Core","Cable Wood Chop (Low to High)": "Core",
+    "Kettlebell Sit Up and Press": "Core","Cross Body Mountain Climber": "Core","Standing Cable Core Twist": "Core",
+    "Knee Raise Parallel Bars": "Core","Cable Twist (Up to down)": "Core","Vertical Knee Raise": "Core",
+    "Hanging Knee Raise": "Core","Scissor Crossover Kick": "Core","Alternating Heel Touch": "Core",
+    "Dumbbell Side Bend": "Core","Cable Wood Chop": "Core","Flutter Kicks": "Core","Scissor Kick": "Core",
+    "Toe Touchers": "Core","Kettlebell Halo": "Core","Leg Pull-In": "Core","Ab Wheel": "Core","Dead Bug": "Core","Sit Up": "Core",
+    "Bear Crawl": "Core", "Iron Cross": "Core",
+
+    # --- Grip ---
+    'farmers walk': 'Grip', 'carry': 'Grip', 'dead hang': 'Grip', "Single Arm Bottoms-up Kettlebell Press": "Grip", 
+    "Climbing": "Grip",
 
     # --- CARDIO & WARM UP ---
-    'walking': 'Cardio', 'treadmill': 'Cardio', 'sled push': 'Cardio', 'warm up': 'Warm Up'
-    }
+    'walking': 'Cardio', 'treadmill': 'Cardio', "Aerobics": "Cardio",  "Spinning": "Cardio",
+    "Scuba Diving": "Cardio", "Rowing Machine": "Cardio", "Elliptical Trainer": "Cardio", 
+
+    "Butt Scoot": "Warm Up", "Airplane": "Warm Up", "Cat Cow": "Warm Up", "Stretching": "Warm Up",
+    "Foam Roll Hamstrings": "Warm Up", 'warm up': 'Warm Up',
+
+        }
 
         if self.API_KEY is None:
             LOG.critical("API Key is missing! Check your .env file.")
@@ -116,7 +148,7 @@ class HevySync:
         self._seed_exercise_mapping()
         self._create_analytics_view()
 
-    def _create_analytics_view(self):
+    def _create_analytics_view(self) -> None:
         self.conn.execute("DROP VIEW IF EXISTS v_workout_analytics")
         
         view_query = """
@@ -193,15 +225,16 @@ class HevySync:
         self.conn.execute(view_query)
         self.conn.commit()
 
-    def get_category(self, exercise_name):
+    def get_category(self, exercise_name: str) -> str:
+
         """Matches an exercise name to a category using the keyword map."""
         name_lower = exercise_name.lower()
         for keyword, category in self.category_map.items():
-            if keyword in name_lower:
+            if keyword.lower() in name_lower:
                 return category
         return 'Other'  # Fallback for unique exercises
         
-    def _create_tables(self):
+    def _create_tables(self) -> None:
         query = """
         CREATE TABLE IF NOT EXISTS workouts (
             hevy_id TEXT PRIMARY KEY,
@@ -235,7 +268,7 @@ class HevySync:
         self.conn.execute(query)
         self.conn.commit()
 
-    def _seed_exercise_mapping(self):
+    def _seed_exercise_mapping(self) -> None:
         """Checks for exercises in the JSON that aren't in the mapping table yet."""
         cursor = self.conn.execute("""
             SELECT DISTINCT json_each.value ->> '$.title' 
@@ -247,13 +280,13 @@ class HevySync:
         if new_exercises:
             LOG.info(f"Found {len(new_exercises)} new exercises. Mapping to muscle groups")
             for name in new_exercises:
-                # Use your existing Python get_category logic
-                category = self.get_category(name) 
+                category = self.get_category(name)            
+                LOG.info(f"Mapping exercise '{name}' to category '{category}'")
                 self.conn.execute("INSERT INTO exercise_mapping (exercise_name, muscle_group) VALUES (?, ?)", 
                                 (name, category))
             self.conn.commit()        
 
-    def _increment_timestamp_by_microsecond(self, ts_string):
+    def _increment_timestamp_by_microsecond(self, ts_string: str) -> str:
         """
         Increments an ISO timestamp by 1 microsecond to prevent 
         duplicate retrieval from 'greater-than-or-equal-to' APIs.
@@ -269,7 +302,7 @@ class HevySync:
     
         return f"{main_part}.{millis}Z"
     
-    def _save_workout(self, workout_data):
+    def _save_workout(self, workout_data) -> None:
         """Saves a new workout or updates an existing one."""
         query = """
         INSERT OR REPLACE INTO workouts (hevy_id, start_time, end_time, created_at, updated_at, routine_id, title, raw_json)
@@ -290,13 +323,13 @@ class HevySync:
         self.conn.commit()
         LOG.debug(f"Saved workout {workout_data['id']} to database.")
 
-    def _delete_workout(self, workout_id):
+    def _delete_workout(self, workout_id: str) -> None:
         """Handles the 'deleted' event type."""
         self.conn.execute("DELETE FROM workouts WHERE hevy_id = ?", (workout_id,))
         self.conn.commit()
         LOG.info(f"Deleted workout {workout_id} from database.")
     
-    def _format_date_string(self, date_str):
+    def _format_date_string(self, date_str: str) -> str:
         if not date_str:
             return ""
         try:
@@ -314,7 +347,7 @@ class HevySync:
             return val[0] if val[0] is not None else 0
         return val
 
-    def _save_to_file(self):
+    def _save_to_file(self) -> None:
         """
         Exports the processed analytical view to CSV.
         All transformation logic now lives in the SQLite View 'v_workout_analytics'.
@@ -360,7 +393,7 @@ class HevySync:
         # Note: Removed self.conn.close() to keep the connection alive for other tasks
         return
 
-    def _make_request(self, endpoint, params=None):
+    def _make_request(self, endpoint: str, params =None):
         """
         Internal helper to handle all API communication.
         Returns JSON data if successful, None if it fails.
@@ -392,7 +425,7 @@ class HevySync:
         row = cursor.fetchone()
         return row[0] if row else None
 
-    def _update_last_sync_time(self, timestamp):
+    def _update_last_sync_time(self, timestamp) -> None:
         """Updates the sync marker to the latest event time received."""
         # need to increment the timestamp cuz hevy is doing >= on the 'since' timestamp
         ammendedTimeStamp = self._increment_timestamp_by_microsecond(timestamp)
@@ -401,7 +434,7 @@ class HevySync:
         self.conn.execute(query, (ammendedTimeStamp,))
         self.conn.commit()
 
-    def _get_all_historical_workouts(self, endpoint, pageSize):
+    def _get_all_historical_workouts(self, endpoint: str, pageSize: int) -> list:
         all_results = []
         page = 1
         while True:
@@ -417,7 +450,7 @@ class HevySync:
             page += 1
         return all_results
 
-    def sync_workouts(self):
+    def sync_workouts(self) -> None:
         LOG.info("syncing workouts")
         page = 1 # we always start at page 1
         pageSize = 10 #default - 10 pages
@@ -466,6 +499,12 @@ class HevySync:
             # we can use system time to set the last check
             LOG.info(f"Sync complete")
             self._update_last_sync_time(timestamp)
+
+    """ periodic sync of exercises from Hevy API so that we have access to the exercise ID's for generating workouts later """
+    def sync_exercises(self) -> None:
+        LOG.info("syncing exercises")
+        # Placeholder for future exercise sync logic
+        pass
 
 if __name__ == '__main__':
     args = setup()

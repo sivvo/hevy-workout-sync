@@ -1,0 +1,17 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Hevy Sync",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "hevysync.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--user", "martin",
+                "--getworkouts"
+            ],
+            "justMyCode": true
+        }
+    ]
+}

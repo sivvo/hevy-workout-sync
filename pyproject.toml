@@ -1,0 +1,20 @@
+[project]
+name = "hevy-workout-sync"
+version = "0.1.0"
+description = "Hevy workout data synchronization and AI analysis"
+readme = "README.md"
+requires-python = ">=3.12, <3.14"
+dependencies = [
+    "google-genai>=1.0.0",
+    "pandas>=2.2.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+    "streamlit>=1.30.0",
+    "plotly>=5.18.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+]
