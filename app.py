@@ -15,7 +15,6 @@ def get_sync_engine(username):
     return HevySync(username=username)
 
 def simplify_name(name):
-    """Groups variants like (Barbell) or (Dumbbell) into a single movement pattern."""
     suffixes = [' (Barbell)', ' (Dumbbell)', ' (Smith Machine)', ' - Barbell', ' - Dumbbell', ' (Close Grip)']
     for s in suffixes:
         name = name.replace(s, '')
@@ -25,11 +24,11 @@ def load_analytics_data(engine):
     query = "SELECT * FROM v_workout_analytics"
     df = pd.read_sql(query, engine.conn)
     df['start_time'] = pd.to_datetime(df['start_time']).dt.tz_localize(None)
-    # Essential for preventing zigzags: create a date-only column for aggregation
+    # Using date instead of time prevents vertical zigzags on the same day
     df['workout_date'] = df['start_time'].dt.date
     return df
 
-# --- Sidebar: User & Sync ---
+# --- Sidebar: User & Sync  ---
 with st.sidebar:
     st.header("👤 User Settings")
     user_input = st.text_input("Hevy Username", value="martin")
@@ -43,16 +42,11 @@ with st.sidebar:
 
 # --- Initialize Engine & Load Data ---
 sync_engine = get_sync_engine(user_input)
-
 if not os.path.exists(sync_engine.db):
-    st.error(f"### ⚠️ Database Not Found")
+    st.error(f"### ⚠️ Database for '{user_input}' Not Found")
     st.stop()
 
 data = load_analytics_data(sync_engine)
-
-if data.empty:
-    st.warning("No workout data found.")
-    st.stop()
 
 # --- Global Filtering Logic ---
 excluded_categories = ['Cardio', 'Warm Up']
@@ -64,156 +58,354 @@ with st.sidebar:
     selected_muscles = st.multiselect(
         "Focus Muscle Groups", 
         options=strength_muscle_options,
-        default=strength_muscle_options,
-        key="sidebar_muscle_filter"
+        default=strength_muscle_options
     )
-    st.sidebar.metric("Total Active Days (All)", data['start_time'].dt.date.nunique())
+    st.sidebar.metric("Total Active Days", data['workout_date'].nunique())
 
-# Sidebar filter applied to main dataframe
 filtered_strength_df = strength_only_df[strength_only_df['muscle_group'].isin(selected_muscles)]
 
-# --- Dashboard UI ---
-st.title("🏋️ Hevy Performance Dashboard")
+# 
+######################################################################
+######################################################################
+#Top Bar
+######################################################################
+######################################################################
+
 
 # --- Metrics Row ---
+st.title("🏋️ Hevy Performance Dashboard")
 m1, m2, m3, m4 = st.columns(4)
-total_vol = int(filtered_strength_df['volume'].sum())
-m1.metric("Lifting Volume", f"{total_vol:,} kg")
+m1.metric("Lifting Volume", f"{int(filtered_strength_df['volume'].sum()):,} kg")
 m2.metric("Total Reps", int(filtered_strength_df['reps'].sum() or 0))
-m3.metric("Lifting Sessions", filtered_strength_df['start_time'].dt.date.nunique())
+m3.metric("Lifting Sessions", filtered_strength_df['workout_date'].nunique())
 m4.metric("Avg Volume/Set", f"{round(filtered_strength_df['volume'].mean(), 1)} kg")
 
-# --- Progressive Overload (Top Sets) ---
+
+######################################################################
+######################################################################
+#Progressive Overload
+######################################################################
+######################################################################
+
 st.divider()
 st.subheader("🚀 Progressive Overload (Top Sets)")
 
-# 1. PRE-FILTER: Weight > 0 and Min 5 Sessions
 weighted_df = filtered_strength_df[filtered_strength_df['weight_kg'] > 0].copy()
-exercise_counts = weighted_df.groupby('exercise_name')['start_time'].nunique()
+exercise_counts = weighted_df.groupby('exercise_name')['workout_date'].nunique()
 frequent_exercises = exercise_counts[exercise_counts >= 5].index.tolist()
 weighted_df = weighted_df[weighted_df['exercise_name'].isin(frequent_exercises)]
 
-# 2. UI: Interactive Selection
 col_select, col_toggle = st.columns([3, 1])
-
 with col_select:
     display_options = sorted(list(set([simplify_name(ex) for ex in frequent_exercises])))
-    selected_groups = st.multiselect(
-        "Select Movement Patterns", 
-        options=display_options,
-        placeholder="Search (e.g. Bench Press)",
-        key="movement_multiselect"
-    )
-
+    selected_groups = st.multiselect("Select Movement Patterns", options=display_options)
 with col_toggle:
-    st.write("View Mode")
-    aggregate_view = st.toggle("Combine Variants", value=False, key="agg_toggle")
+    aggregate_view = st.toggle("Combine Variants", value=False)
 
-# 3. Data Processing & Outlier Removal
+# --- Updated Progressive Overload Section ---
+# --- Updated Strength Logic using E1RM ---
 if selected_groups:
-    plot_df = weighted_df[weighted_df['exercise_name'].apply(simplify_name).isin(selected_groups)].copy()
-    
-    # Define outlier filter function
-    def filter_outliers(group):
-        if len(group) < 2: return group
-        limit = group['weight_kg'].max() * 0.6
-        return group[group['weight_kg'] >= limit]
+    plot_df = weighted_df.copy()
+    plot_df['simplified_name'] = plot_df['exercise_name'].apply(simplify_name)
+    plot_df = plot_df[plot_df['simplified_name'].isin(selected_groups)]
 
-    # Apply filter and FIX: include_groups=False silences the Pandas deprecation warning
-    plot_df = plot_df.groupby('exercise_name', group_keys=False).apply(
-        filter_outliers, 
-        include_groups=False
+    # 1. CALCULATE E1RM (Brzycki Formula)
+    # This turns (60kg x 10) and (75kg x 2) into comparable numbers
+    plot_df['e1rm'] = plot_df['weight_kg'] / (1.0278 - (0.0278 * plot_df['reps']))
+    
+    # 2. COLLAPSE TO DAILY MAX E1RM
+    # This removes zigzags caused by multiple sets in one day
+    daily_peaks = plot_df.groupby(['workout_date', 'exercise_name'], as_index=False)['e1rm'].max()
+
+    # 3. SMOOTHING (Optional but recommended)
+    # Adds a 3-session rolling average to show the true trend through deloads
+    daily_peaks = daily_peaks.sort_values('workout_date')
+    daily_peaks['smoothed_e1rm'] = daily_peaks.groupby('exercise_name')['e1rm'].transform(
+        lambda x: x.rolling(window=3, min_periods=1).mean()
     )
 
-    # 4. Aggregation by DATE to fix zigzagging
-    # Switching from start_time to workout_date ensures exactly one max point per day
-    if aggregate_view:
-        plot_df['display_name'] = plot_df['exercise_name'].apply(simplify_name)
-        pr_data = plot_df.groupby(['workout_date', 'display_name'])['weight_kg'].max().reset_index()
-        color_col = 'display_name'
-    else:
-        pr_data = plot_df.groupby(['workout_date', 'exercise_name'])['weight_kg'].max().reset_index()
-        color_col = 'exercise_name'
-
-    # Ensure sorting by date to prevent lines drawing out of order
-    pr_data = pr_data.sort_values('workout_date')
-
-    fig_pr = px.line(
-        pr_data, 
+    fig_e1rm = px.line(
+        daily_peaks, 
         x='workout_date', 
-        y='weight_kg', 
-        color=color_col, 
+        y='smoothed_e1rm', 
+        color='exercise_name', 
         markers=True,
         template="plotly_dark",
-        line_shape="linear"
+        title="Strength Trend (Estimated 1-Rep Max)"
     )
     
-    fig_pr.update_layout(
+    fig_e1rm.update_layout(
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        yaxis_title="Max Weight (kg)",
-        xaxis_title="",
-        yaxis=dict(rangemode="normal") 
+        yaxis_title="Est. 1RM (kg)",
+        yaxis=dict(rangemode="normal")
     )
     
-    st.plotly_chart(fig_pr, width='stretch', key="overload_chart_v_final")
+    st.plotly_chart(fig_e1rm, width='stretch')
 else:
-    st.info("Select a movement pattern to track strength progression.")
+    st.info("Select a movement pattern above to see your progress.")
 
-# --- Volume & Balance ---
-st.divider()
-col_left, col_right = st.columns(2)
 
-with col_left:
-    st.subheader("Weekly Volume Trend")
-    weekly = filtered_strength_df.groupby(['week_year', 'muscle_group'])['volume'].sum().reset_index()
-    fig_weekly = px.bar(weekly, x='week_year', y='volume', color='muscle_group', barmode='stack', template="plotly_dark")
-    st.plotly_chart(fig_weekly, width='stretch', key="weekly_volume_chart")
+######################################################################
+######################################################################
+#Weekly Volume Trend
+######################################################################
+######################################################################
+st.subheader("📈 Enhanced Weekly Volume Trend")
 
-with col_right:
-    st.subheader("Volume Distribution Balance")
-    muscle_totals = filtered_strength_df.groupby('muscle_group')['volume'].sum().reset_index()
-    fig_radar = go.Figure(data=go.Scatterpolar(r=muscle_totals['volume'], theta=muscle_totals['muscle_group'], fill='toself'))
-    fig_radar.update_layout(template="plotly_dark", polar=dict(radialaxis=dict(visible=False)))
-    st.plotly_chart(fig_radar, width='stretch', key="radar_volume_chart")
+# 1. DATA PREP & DATETIME CONVERSION
+df_vol = filtered_strength_df.copy()
+df_vol['workout_date'] = pd.to_datetime(df_vol['workout_date'])
+df_vol['year'] = df_vol['workout_date'].dt.isocalendar().year
+df_vol['week'] = df_vol['workout_date'].dt.isocalendar().week
+df_vol['sort_key'] = df_vol['year'] * 100 + df_vol['week']
 
-# --- 3-State Consistency Heatmap (All Activity) ---
-st.divider()
-st.subheader("📅 Full Year Training Consistency (All Activity)")
+# 2. MANDATORY UNIQUE AGGREGATION
+# This step collapses all sessions in a week into one row per muscle 
+# to prevent the "non-unique multi-index" error
+weekly_data = df_vol.groupby(['sort_key', 'week_year', 'muscle_group'])['volume'].sum().reset_index()
 
-all_activity = data.copy()
-all_activity['date'] = pd.to_datetime(all_activity['start_time']).dt.date
-daily = all_activity.groupby('date')['start_time'].nunique().reset_index(name='sessions')
+# 3. FIX: DENSE DATA REINDEXING (Prevents "Floating Bars")
+# Capture unique mappings before reindexing
+all_weeks = weekly_data[['sort_key', 'week_year']].drop_duplicates()
+all_muscles = weekly_data['muscle_group'].unique()
 
-start_date, end_date = daily['date'].min(), daily['date'].max()
-full_range = pd.date_range(start=start_date, end=end_date).date
-calendar_df = pd.DataFrame({'date': full_range}).merge(daily, on='date', how='left').fillna(0)
-calendar_df['state'] = calendar_df['sessions'].apply(lambda x: 2 if x > 1 else x)
-calendar_df['date'] = pd.to_datetime(calendar_df['date'])
-calendar_df['week'] = calendar_df['date'].dt.strftime('%G-W%V') 
-calendar_df['day'] = calendar_df['date'].dt.day_name()
+# Reindex using only the keys needed for the matrix
+# Using .groupby().first() here acts as a safety net for uniqueness
+dense_data = weekly_data.groupby(['sort_key', 'muscle_group'])['volume'].sum().reset_index()
 
-heatmap_input = calendar_df.groupby(['day', 'week'])['state'].max().reset_index()
-heatmap_pivot = heatmap_input.pivot(index='day', columns='week', values='state').reindex(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'])
-
-custom_colors = ["#161b22", "#26a641", "#39d353"]
-fig_heat = px.imshow(heatmap_pivot, color_continuous_scale=custom_colors, zmin=0, zmax=2, template="plotly_dark", aspect="equal")
-fig_heat.update_traces(xgap=3, ygap=3)
-fig_heat.update_layout(
-    height=320, 
-    margin=dict(l=10, r=10, t=20, b=10),
-    xaxis=dict(dtick=4, showgrid=False), 
-    yaxis=dict(showgrid=False),
-    coloraxis_colorbar=dict(
-        title="Sessions",
-        tickvals=[0, 1, 2],
-        ticktext=["Rest", "1 Workout", "2+ Workouts"],
-        lenmode="pixels", len=180
-    )
+dense_index = pd.MultiIndex.from_product(
+    [all_weeks['sort_key'].unique(), all_muscles], 
+    names=['sort_key', 'muscle_group']
 )
-st.plotly_chart(fig_heat, width='stretch', config={'displayModeBar': False}, key="consistency_heatmap_v3")
 
-# --- Data Table ---
-st.subheader("Exercise Logs (Strength Only)")
-display_df = filtered_strength_df[['start_time', 'workout_name', 'exercise_name', 'set_index', 'weight_kg', 'reps', 'volume']].sort_values('start_time', ascending=False)
-st.dataframe(display_df, width='stretch', hide_index=True, key="main_data_table")
+# This reindex now works because the previous groupby guaranteed uniqueness
+weekly_data = dense_data.set_index(['sort_key', 'muscle_group']).reindex(dense_index, fill_value=0).reset_index()
+
+# 4. RESTORE LABELS & SORT
+weekly_data = weekly_data.merge(all_weeks, on='sort_key', how='left')
+weekly_data = weekly_data.sort_values('sort_key')
+
+# 5. INTERACTIVE PICKER
+selected_muscles = st.multiselect(
+    "Focus Muscle Groups", 
+    options=sorted(all_muscles), 
+    default=sorted(all_muscles)
+)
+filtered_weekly = weekly_data[weekly_data['muscle_group'].isin(selected_muscles)]
+
+# 6. CALCULATE TREND (Using unique sort keys)
+totals = filtered_weekly.groupby(['sort_key', 'week_year'])['volume'].sum().reset_index()
+totals = totals.sort_values('sort_key')
+totals['moving_avg'] = totals['volume'].rolling(window=4, min_periods=1).mean()
+
+fig_vol = go.Figure()
+
+# 7. ADD BARS (Properly Stacked and Grounded)
+for muscle in selected_muscles:
+    m_df = filtered_weekly[filtered_weekly['muscle_group'] == muscle]
+    fig_vol.add_trace(go.Bar(
+        x=m_df['week_year'], 
+        y=m_df['volume'], 
+        name=muscle
+    ))
+
+# 8. ADD TREND LINE
+fig_vol.add_trace(go.Scatter(
+    x=totals['week_year'], 
+    y=totals['moving_avg'], 
+    name='4-Week Trend',
+    line=dict(color='white', width=3, dash='dot'),
+    mode='lines'
+))
+
+fig_vol.update_layout(
+    barmode='stack',
+    template="plotly_dark",
+    hovermode="x unified",
+    xaxis=dict(type='category', categoryorder='array', categoryarray=totals['week_year'], tickangle=-45),
+    yaxis=dict(title="Total Volume (kg)")
+)
+
+st.plotly_chart(fig_vol, use_container_width=True)
+
+
+######################################################################
+######################################################################
+#Muscle Radar
+######################################################################
+######################################################################
+# --- Muscle Volume Distribution (The Radar) ---
+st.subheader("🎯 Muscle Volume Distribution & Progress")
+
+# 1. Period Selection Logic
+# Anchor all calculations to the latest workout date in your data
+df_radar = filtered_strength_df.copy()
+df_radar['workout_date'] = pd.to_datetime(df_radar['workout_date'])
+latest_date = df_radar['workout_date'].max()
+
+col1, col2 = st.columns([2, 1])
+with col1:
+    period_label = st.radio(
+        "Compare Focus Over:", 
+        ["1 Month", "3 Months", "6 Months", "1 Year"], 
+        horizontal=True
+    )
+
+# Map labels to days for calculation
+period_map = {"1 Month": 30, "3 Months": 90, "6 Months": 180, "1 Year": 365}
+days = period_map[period_label]
+
+# 2. Define Date Ranges
+current_start = latest_date - pd.Timedelta(days=days)
+prev_start = current_start - pd.Timedelta(days=days)
+
+# 3. Filter and Aggregate
+# Current Period Data
+df_curr = df_radar[df_radar['workout_date'] > current_start]
+curr_sets = df_curr.groupby('muscle_group').size().reset_index(name='sets')
+
+# Previous Period Data (The Overlay)
+df_prev = df_radar[(df_radar['workout_date'] > prev_start) & (df_radar['workout_date'] <= current_start)]
+prev_sets = df_prev.groupby('muscle_group').size().reset_index(name='sets')
+
+# 4. Align Muscle Groups (Ensure both traces have the same axes)
+all_muscles = sorted(df_radar['muscle_group'].unique())
+curr_sets = curr_sets.set_index('muscle_group').reindex(all_muscles, fill_value=0).reset_index()
+prev_sets = prev_sets.set_index('muscle_group').reindex(all_muscles, fill_value=0).reset_index()
+
+# ENSURE THE LOOP CLOSES
+# We append the first row of data to the end of the dataframe
+curr_closed = pd.concat([curr_sets, curr_sets.iloc[[0]]])
+prev_closed = pd.concat([prev_sets, prev_sets.iloc[[0]]])
+
+# 5. Create the Comparative Radar Chart
+fig_radar = go.Figure()
+
+# Trace 1: Previous Period (The faint "Shadow" or Benchmark)
+fig_radar.add_trace(go.Scatterpolar(
+    r=prev_closed['sets'],
+    theta=prev_closed['muscle_group'],
+    fill='toself',
+    name=f'Previous {period_label}',
+    line_color='rgba(255, 255, 255, 0.2)',
+    fillcolor='rgba(255, 255, 255, 0.1)'
+))
+
+# Trace 2: Current Period (The Active Focus)
+fig_radar.add_trace(go.Scatterpolar(
+    r=curr_closed['sets'],
+    theta=curr_closed['muscle_group'],
+    fill='toself',
+    name=f'Current {period_label}',
+    line_color='#00CC96',
+    fillcolor='rgba(0, 204, 150, 0.3)'
+))
+
+fig_radar.update_layout(
+    polar=dict(
+        radialaxis=dict(visible=True, showticklabels=False, gridcolor='rgba(255,255,255,0.1)'),
+        angularaxis=dict(gridcolor='rgba(255,255,255,0.1)')
+    ),
+    template="plotly_dark",
+    legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+    margin=dict(t=20, b=20, l=40, r=40)
+)
+
+st.plotly_chart(fig_radar, use_container_width=True)
+
+
+######################################################################
+######################################################################
+#Heat Map
+######################################################################
+######################################################################
+
+
+# --- Heatmap 
+st.divider()
+st.subheader("📅 Training Consistency")
+daily = data.groupby('workout_date')['start_time'].nunique().reset_index(name='sessions')
+daily['workout_date'] = pd.to_datetime(daily['workout_date'])
+daily['week'] = daily['workout_date'].dt.strftime('%G-W%V') 
+daily['day'] = daily['workout_date'].dt.day_name()
+daily['state'] = daily['sessions'].apply(lambda x: 2 if x > 1 else x)
+
+heatmap_pivot = daily.pivot(index='day', columns='week', values='state').reindex(
+    ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+)
+
+fig_heat = px.imshow(heatmap_pivot, color_continuous_scale=["#161b22", "#26a641", "#39d353"], 
+                     zmin=0, zmax=2, template="plotly_dark")
+fig_heat.update_layout(height=320, coloraxis_showscale=False)
+st.plotly_chart(fig_heat, width='stretch')
+
+######################################################################
+######################################################################
+#Exercise Logs
+######################################################################
+######################################################################
+
+st.subheader("Detailed Exercise Logs")
+st.dataframe(filtered_strength_df[['start_time', 'exercise_name', 'weight_kg', 'reps', 'volume']].sort_values('start_time', ascending=False), width='stretch', hide_index=True)
+
+######################################################################
+######################################################################
+#Muscle Strengh Index
+######################################################################
+######################################################################
+# --- Dashboard Header ---
+st.subheader("💪 Ultimate Muscle Strength Index")
+
+# 1. Processing Data (E1RM Normalization)
+df_idx = filtered_strength_df.copy()
+# Normalized E1RM eliminates zigzags caused by rep changes
+df_idx['e1rm'] = df_idx['weight_kg'] / (1.0278 - (0.0278 * df_idx['reps']))
+df_idx['ex_max'] = df_idx.groupby('exercise_name')['e1rm'].transform('max')
+df_idx['score'] = (df_idx['e1rm'] / df_idx['ex_max']) * 100
+
+# 2. Aggregation: Daily Peak per Muscle
+# Taking the MAX per day ensures warmups don't create zigzags
+muscle_trend = df_idx.groupby(['workout_date', 'muscle_group'], as_index=False)['score'].max()
+muscle_trend = muscle_trend.sort_values('workout_date')
+
+# 3. Smoothing (14-Day Rolling Window)
+# Removes session jitter to reveal long-term trends
+muscle_trend['smoothed'] = muscle_trend.groupby('muscle_group')['score'].transform(
+    lambda x: x.rolling(window=14, min_periods=1, center=True).mean()
+)
+
+# --- NEW: User Controls for Readability ---
+col1, col2 = st.columns([3, 1])
+
+with col1:
+    # Picker allows individual lines to be turned on/off
+    all_muscles = sorted(muscle_trend['muscle_group'].unique())
+    selected_muscles = st.multiselect(
+        "Select Muscle Groups", 
+        options=all_muscles, 
+        default=all_muscles
+    )
+
+with col2:
+    # Fix for data loss: Toggle between Zoomed and Full view
+    view_mode = st.radio("Y-Axis View", ["Zoomed (80-100%)", "Full (Show All)"], horizontal=True)
+# 4. Filter and Render
+plot_data = muscle_trend[muscle_trend['muscle_group'].isin(selected_muscles)]
+y_range = [80, 102] if view_mode == "Zoomed (80-100%)" else [None, 105]
+
+fig_final = px.line(
+    plot_data, 
+    x='workout_date', 
+    y='smoothed', 
+    color='muscle_group',
+    template="plotly_dark",
+    title="Long-Term Strength Development (E1RM Normalized)"
+)
+
+fig_final.update_layout(
+    yaxis=dict(range=y_range, title="Strength Index (%)"),
+    xaxis=dict(title=""),
+    hovermode="x unified",
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+)
+st.plotly_chart(fig_final, width='stretch')

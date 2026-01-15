@@ -164,14 +164,7 @@ class HevySync:
             f.exercise_notes,
             COALESCE(m.muscle_group, 'Other') AS muscle_group,
             f.set_index,
-            
-            -- Normalization Logic (Dumbbell Correction)
-            CASE 
-                WHEN f.routine_id IS NULL AND (f.exercise_name LIKE '%Dumbbell%' OR f.exercise_name LIKE '%DB%')
-                THEN COALESCE(f.raw_weight, 0) * 2
-                ELSE COALESCE(f.raw_weight, 0)
-            END AS weight_kg,
-            
+            f.raw_weight AS weight_kg,
             f.reps,
             f.distance_meters,
             f.duration_seconds,
@@ -481,5 +474,5 @@ if __name__ == '__main__':
 
     if args.getworkouts:
         """ We're going to be downloading from Hevy API to local log """
+        hevydownloader.sync_workouts()
         hevydownloader._save_to_file() # TEMPORARY DIRECT CALL
-        #hevydownloader.sync_workouts()
