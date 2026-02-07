@@ -7,6 +7,7 @@ from dotenv import load_dotenv, find_dotenv
 from abc import ABC, abstractmethod
 from typing import Optional
 import logging
+from datetime import datetime
 
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
@@ -27,8 +28,7 @@ console_hdlr.setLevel(logging.INFO)
 LOG.addHandler(file_hdlr)
 LOG.addHandler(console_hdlr)
 
-
-# --- 1. Abstract Base Class for Data Loading (The Strategy) ---
+# --- Abstract Base Class for Data Loading (The Strategy) ---
 class DataLoader(ABC):
     """
     Abstract base class to enforce a consistent interface for 
@@ -39,7 +39,8 @@ class DataLoader(ABC):
         """Reads data and returns it as a string formatted for the LLM."""
         pass
 
-# --- 2. Concrete Implementations for Data Sources ---
+# --- Concrete Implementations for Data Sources ---
+""" TODO: Write the CSVLoader method """
 class CSVLoader(DataLoader):
     def __init__(self, file_path: str):
         self.file_path = file_path
@@ -55,26 +56,39 @@ class CSVLoader(DataLoader):
             raise Exception(f"Error reading CSV: {e}")
 
 class SQLiteLoader(DataLoader):
-    def __init__(self, db_path: str, query: str):
+    def __init__(self, db_path: str):
         self.db_path = db_path
-        self.query = query
+        self.conn = None
 
-    def load_data(self) -> str:
-        conn = None
+    def __enter__(self):
         try:
-            conn = sqlite3.connect(self.db_path)
-            df = pd.read_sql_query(self.query, conn)
-            return df.to_csv(index=False)
+            self.conn = sqlite3.connect(self.db_path)
+            return self
         except sqlite3.Error as e:
             LOG.info(f"db: {self.db_path}")
-            raise Exception(f"Database error: {e}")
-        finally:
-            if conn:
-                conn.close()
+            LOG.error(f"Database connection error: {e}")
+            #raise Exception(f"Database error: {e}")
+            raise
 
-# --- 3. The Gemini Agent Class ---
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.conn:
+            self.conn.close()        
+
+    def load_data(self, query: str) -> str:
+        if not self.conn:
+            raise Exception("Database connection is closed. Use 'with' context.")
+        try:
+            df = pd.read_sql_query(query, self.conn)
+            return df.to_csv(index=False)
+        except Exception as e:
+            LOG.info(f"db: {self.db_path}")
+            LOG.error(f"Query execution failed: {e}")
+            raise
+
+# --- Gemini Agent Class ---
 class GeminiAgent:
     def __init__(self, api_key: str, model_name: str = "gemini-2.0-flash"): # Updated default model
+        # TODO: Move model_name to config so it's not hardcoded
         if not api_key:
             raise ValueError("API Key must be provided.")
         
@@ -112,48 +126,29 @@ class GeminiAgent:
         except Exception as e:
             return f"Error: {e}"
     
-# --- 4. The Orchestrator (Main Controller) ---
+# --- The Orchestrator (Main Controller) ---
 class ProcessorApp:
     def __init__(self, data_loader: DataLoader, agent: GeminiAgent):
         self.loader = data_loader
         self.agent = agent
 
-    def run(self, action_instruction: str):
-        print("--- Step 1: Loading Data... ---")
+    def run(self, action_instruction: str, query: str):
+        LOG.info(f"Loading Data...query: {query}")
         try:
-            data_context = self.loader.load_data()
-            print(f"Data loaded successfully ({len(data_context)} characters).")
+            data_context = self.loader.load_data(query)
+            LOG.info(f"Data loaded successfully ({len(data_context)} characters).")
         except Exception as e:
-            print(f"Failed to load data: {e}")
+            LOG.info(f"Failed to load data: {e}")
             return
 
-        print("--- Step 2: Sending to Gemini... ---")
+        LOG.info(f"Sending to Gemini...")
         result = self.agent.analyze_knowledge(data_context, action_instruction)
                 
-        print("\n--- Step 3: Result ---")
-        print(result)
+        LOG.info(f"\nResult:\n{result}")
 
-# --- Usage Example ---
-if __name__ == "__main__":
-    # this will be refactored into hevysync.py later... for now some values are hardcoded
+def performance_review(app):
 
-    if SAVE_PATH: #save path has been set
-        db = os.path.join(SAVE_PATH, USER, "-hevy.db")
-    else:
-        LOG.warning(f"SAVE_PATH not set in .env. Using current folder")
-        db = f"{USER}-hevy.db"
-    query = "SELECT * FROM v_workout_analytics ORDER BY start_time DESC LIMIT 1"
-
-    source = SQLiteLoader(db, query)
-    # Initialize Agent
-    try:
-        agent = GeminiAgent(api_key=API_KEY)
-        
-        # Initialize Application
-        app = ProcessorApp(data_loader=source, agent=agent)
-
-        # Run with specific instruction
-        my_instruction = (
+    my_instruction = (
     "Analyse my workout data from the DATASET provided. You know the field mappings for this data set. Specifically:\n"
     "1. Look at the current maximum weight being lifted on major compound lifts (squat, deadlift, bench press, overhead press), "
     "as well as other muscle groups and exercises that benefit from progressive overload in the past 4-8 weeks. Provide a recommended weight to use for the next workout \n"
@@ -162,7 +157,71 @@ if __name__ == "__main__":
     "4. Provide general recommendations for improving strength and physique based on the data trends you observe."
         )
         
-        app.run(my_instruction)
+    app.run(my_instruction, WORKOUT_ANALYTICS_QUERY)
 
-    except ValueError as ve:
-        print(ve)
+def routine_review():
+    pass
+
+def adjust_workout_one_day(app):
+    LOG.info("Adjusting one day workout plan")
+    """
+    Find today's workout plan and ask Gemini to adjust it in response to <user_input>
+    Naming convention of routines 1: monday 2: tuesday etc
+    """
+    PROMPT = "this is today's workout. I'm in a different gym and there are no barbells available. Suggest alternatives - ideally keeping the overall volume and intensity similar where possible."
+    current_day = datetime.now().isoweekday()
+    # TODO - this needs refactoring, because a call to Gemini needs to perform multiple queries
+
+    query = "SELECT * FROM routines WHERE title LIKE ? || ':%'"
+    cursor = source.conn.execute(query, (current_day,))
+    todays_routine = cursor.fetchall()
+    print(f"Today's routine: {todays_routine}")
+
+def adjust_workout_weekly():
+    pass
+
+def create_routine():
+    pass
+
+""" this will move to hevysync"""
+def backup_routine():
+    pass
+
+def restore_routine():
+    pass
+
+
+if __name__ == "__main__":
+    # this will be refactored into hevysync.py later... for now some values are hardcoded
+    WORKOUT_ANALYTICS_QUERY = "SELECT * FROM v_workout_analytics ORDER BY start_time DESC LIMIT 1"
+    
+    if SAVE_PATH: #save path has been set
+        db = os.path.join(SAVE_PATH, USER, "-hevy.db")
+    else:
+        LOG.warning(f"SAVE_PATH not set in .env. Using current folder")
+        db = f"{USER}-hevy.db"
+
+    try:
+        agent = GeminiAgent(api_key=API_KEY)
+        
+        # Use the context manager here
+        with SQLiteLoader(db) as source:
+            app = ProcessorApp(data_loader=source, agent=agent)
+            
+            # Execute your specific action
+            #performance_review(app)
+            adjust_workout_one_day(app)
+
+    except Exception as e:
+        print(f"Application Error: {e}")
+
+"""
+# Fetching from SQLite
+row = cursor.execute("SELECT exercise_title, set_data FROM sync_routines...").fetchone()
+sets = json.loads(row['set_data']) # Convert back to list
+
+# Gemini Prompting
+prompt = f"In the routine '{row['routine_title']}', for {row['exercise_title']}, the sets are {sets}. Recommend weights for next time."
+
+
+"""

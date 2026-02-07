@@ -8,8 +8,10 @@ import os
 import re
 import sqlite3
 import json
+import time
 from datetime import datetime, timedelta, timezone
-from dotenv import load_dotenv  
+from dotenv import load_dotenv
+from collections import defaultdict
 
 LOG = logging.getLogger('hevy-sync')
 FORMATTER = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
@@ -148,6 +150,7 @@ class HevySync:
         self._seed_exercise_mapping()
         self._create_analytics_view()
 
+    # Setup methods
     def _create_analytics_view(self) -> None:
         self.conn.execute("DROP VIEW IF EXISTS v_workout_analytics")
         
@@ -224,16 +227,7 @@ class HevySync:
         """
         self.conn.execute(view_query)
         self.conn.commit()
-
-    def get_category(self, exercise_name: str) -> str:
-
-        """Matches an exercise name to a category using the keyword map."""
-        name_lower = exercise_name.lower()
-        for keyword, category in self.category_map.items():
-            if keyword.lower() in name_lower:
-                return category
-        return 'Other'  # Fallback for unique exercises
-        
+      
     def _create_tables(self) -> None:
         query = """
         CREATE TABLE IF NOT EXISTS workouts (
@@ -265,7 +259,51 @@ class HevySync:
             muscle_group TEXT
             )
         """)
-        self.conn.execute(query)
+        self.conn.commit()
+
+        # exercise templates table
+        # TODO - this might replace the custom exercise_mapping table we made earlier
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS exercise_templates (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            type TEXT, 
+            primary_muscle_group TEXT, 
+            secondary_muscle_groups TEXT, 
+            equipment TEXT, 
+            is_custom BOOLEAN
+            )
+        """)
+        self.conn.commit()
+
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS routine_folders (
+            id TEXT PRIMARY KEY,
+            index_no INTEGER,
+            title TEXT,
+            updated_at DATETIME,
+            created_at DATETIME
+            )
+        """)
+        self.conn.commit()
+
+        self.conn.execute("""
+        CREATE TABLE IF NOT EXISTS routines (
+            id TEXT,
+            title TEXT,
+            folder_id TEXT,
+            updated_at DATETIME,
+            created_at DATETIME,
+            exercise_template_id TEXT,
+            exercise_title TEXT,
+            exercise_notes TEXT,
+            exercise_index INTEGER,
+            superset_id TEXT,
+            set_data TEXT,
+            rest_seconds INTEGER,
+            PRIMARY KEY (id, exercise_index)
+        )
+        """)
         self.conn.commit()
 
     def _seed_exercise_mapping(self) -> None:
@@ -286,6 +324,44 @@ class HevySync:
                                 (name, category))
             self.conn.commit()        
 
+    # Helper/Utility functions
+    def find_active_routine_folder(self) -> tuple | None:
+        """Finds the most relevant routine folder based on the current date.
+        That means the title (YYYY-MM) closest to today's date.        
+        """
+        cursor = self.conn.execute("SELECT id, title FROM routine_folders")
+        folders = cursor.fetchall()
+        if not folders:
+            LOG.warning("No routine folders found in the database.")
+            return None
+
+        today = datetime.now()
+        closest_entry = min(
+            folders, 
+            key=lambda x: abs(today - datetime.strptime(x[1], '%Y-%m'))
+        )
+        LOG.info(f"Found {len(folders)} folders.")
+        LOG.info(f"Active routine folder ID: {closest_entry[0]} (Title: {closest_entry[1]})")
+        return (closest_entry[0], closest_entry[1])
+
+    def _clean(self, val):
+        # Helper to turn None into an empty string and ensure no tuples
+        if val is None:
+            return 0
+        # If it accidentally became a tuple, take the first element
+        if isinstance(val, tuple):
+            return val[0] if val[0] is not None else 0
+        return val
+
+    def _format_date_string(self, date_str: str) -> str:
+        if not date_str:
+            return ""
+        try:
+            dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            return dt.strftime('%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            return date_str # Return original if it's not a valid date
+
     def _increment_timestamp_by_microsecond(self, ts_string: str) -> str:
         """
         Increments an ISO timestamp by 1 microsecond to prevent 
@@ -301,52 +377,8 @@ class HevySync:
         millis = incremented_dt.strftime('%f')[:3]
     
         return f"{main_part}.{millis}Z"
-    
-    def _save_workout(self, workout_data) -> None:
-        """Saves a new workout or updates an existing one."""
-        query = """
-        INSERT OR REPLACE INTO workouts (hevy_id, start_time, end_time, created_at, updated_at, routine_id, title, raw_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        # We store the full JSON response in one column so we don't lose any detail
-        # This is going to duplicate all of the other fields - is that desirable?
-        self.conn.execute(query, (
-            workout_data['id'],
-            workout_data['start_time'],
-            workout_data['end_time'],
-            workout_data['created_at'],
-            workout_data['updated_at'],
-            workout_data['routine_id'],
-            workout_data['title'],
-            json.dumps(workout_data)
-        ))
-        self.conn.commit()
-        LOG.debug(f"Saved workout {workout_data['id']} to database.")
 
-    def _delete_workout(self, workout_id: str) -> None:
-        """Handles the 'deleted' event type."""
-        self.conn.execute("DELETE FROM workouts WHERE hevy_id = ?", (workout_id,))
-        self.conn.commit()
-        LOG.info(f"Deleted workout {workout_id} from database.")
-    
-    def _format_date_string(self, date_str: str) -> str:
-        if not date_str:
-            return ""
-        try:
-            dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-            return dt.strftime('%Y-%m-%d %H:%M:%S')
-        except ValueError:
-            return date_str # Return original if it's not a valid date
-
-    # Helper to turn None into an empty string and ensure no tuples
-    def _clean(self, val):
-        if val is None:
-            return 0
-        # If it accidentally became a tuple, take the first element
-        if isinstance(val, tuple):
-            return val[0] if val[0] is not None else 0
-        return val
-
+    # General methods
     def _save_to_file(self) -> None:
         """
         Exports the processed analytical view to CSV.
@@ -393,9 +425,9 @@ class HevySync:
         # Note: Removed self.conn.close() to keep the connection alive for other tasks
         return
 
-    def _make_request(self, endpoint: str, params =None):
+    def _make_get_request(self, endpoint: str, params =None):
         """
-        Internal helper to handle all API communication.
+        Internal helper to handle all API GET communication.
         Returns JSON data if successful, None if it fails.
         """
         url = f"{self.base_url}/{endpoint}"
@@ -403,6 +435,32 @@ class HevySync:
             LOG.debug(f"Requesting: {url} with params: {params}")    
             # Use a timeout so the script doesn't hang forever if the API is slow
             response = requests.get(url, headers=self.headers, params=params, timeout=10)
+            # This triggers an error for 4xx or 5xx status codes
+            response.raise_for_status()
+            response = response.json()
+            LOG.debug(f"Remote response: {response}")
+            return response
+        except requests.exceptions.HTTPError as http_err:
+            LOG.error(f"HTTP error occurred: {http_err} - {response.text}")
+        except requests.exceptions.ConnectionError:
+            LOG.error("Failed to connect to the Hevy API. Check your internet.")
+        except requests.exceptions.Timeout:
+            LOG.error("The request timed out.")
+        except requests.exceptions.RequestException as err:
+            LOG.error(f"An unexpected error occurred: {err}")
+        
+        return None
+
+    def _make_post_request(self, endpoint: str, params =None):
+        """
+        Internal helper to handle all API POST communication.
+        Returns JSON data if successful, None if it fails.
+        """
+        url = f"{self.base_url}/{endpoint}"
+        try:
+            LOG.debug(f"POSTING: {url} with params: {params}")    
+            # Use a timeout so the script doesn't hang forever if the API is slow
+            response = requests.post(url, headers=self.headers, json=params, timeout=10)
             # This triggers an error for 4xx or 5xx status codes
             response.raise_for_status()
             response = response.json()
@@ -434,12 +492,48 @@ class HevySync:
         self.conn.execute(query, (ammendedTimeStamp,))
         self.conn.commit()
 
+    def get_category(self, exercise_name: str) -> str:
+
+        """Matches an exercise name to a category using the keyword map."""
+        name_lower = exercise_name.lower()
+        for keyword, category in self.category_map.items():
+            if keyword.lower() in name_lower:
+                return category
+        return 'Other'  # Fallback for unique exercises   
+    
+    def _save_workout(self, workout_data) -> None:
+        """Saves a new workout or updates an existing one."""
+        query = """
+        INSERT OR REPLACE INTO workouts (hevy_id, start_time, end_time, created_at, updated_at, routine_id, title, raw_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        # We store the full JSON response in one column so we don't lose any detail
+        # This is going to duplicate all of the other fields - is that desirable?
+        self.conn.execute(query, (
+            workout_data['id'],
+            workout_data['start_time'],
+            workout_data['end_time'],
+            workout_data['created_at'],
+            workout_data['updated_at'],
+            workout_data['routine_id'],
+            workout_data['title'],
+            json.dumps(workout_data)
+        ))
+        self.conn.commit()
+        LOG.debug(f"Saved workout {workout_data['id']} to database.")
+
+    def _delete_workout(self, workout_id: str) -> None:
+        """Handles the 'deleted' event type."""
+        self.conn.execute("DELETE FROM workouts WHERE hevy_id = ?", (workout_id,))
+        self.conn.commit()
+        LOG.info(f"Deleted workout {workout_id} from database.")
+    
     def _get_all_historical_workouts(self, endpoint: str, pageSize: int) -> list:
         all_results = []
         page = 1
         while True:
             LOG.info(f"Fetching page {page} of history...")
-            data = self._make_request(endpoint, params={"page": page, "pageSize": pageSize})
+            data = self._make_get_request(endpoint, params={"page": page, "pageSize": pageSize})
             LOG.debug(f"response: {data}")
             if not data or not data.get('workouts'):
                 break
@@ -476,8 +570,8 @@ class HevySync:
             #run_timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
             endpoint = "workouts/events"
             LOG.info(f"get new workouts since {last_sync}")
-            params = {"page": page, "pageSize": 10, "since": last_sync}
-            events_data = self._make_request(endpoint, params)
+            params = {"page": page, "pageSize": pageSize, "since": last_sync}
+            events_data = self._make_get_request(endpoint, params)
             #LOG.info(f"events_data: {events_data}")
             if not events_data or 'events' not in events_data:
                 LOG.info("No new events to sync.")
@@ -500,11 +594,300 @@ class HevySync:
             LOG.info(f"Sync complete")
             self._update_last_sync_time(timestamp)
 
-    """ periodic sync of exercises from Hevy API so that we have access to the exercise ID's for generating workouts later """
+    def _save_exercise(self, exercise_data) -> None:
+        """Saves a new exercise or updates an existing one."""
+        query = """
+        INSERT OR REPLACE INTO exercise_templates (id, title, type, primary_muscle_group, secondary_muscle_groups, equipment, is_custom)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """
+        self.conn.execute(query, (
+            exercise_data['id'],
+            exercise_data['title'],
+            exercise_data['type'],
+            exercise_data['primary_muscle_group'],
+            json.dumps(exercise_data['secondary_muscle_groups']),
+            exercise_data['equipment'],
+            int(exercise_data['is_custom'])        
+         ))
+        self.conn.commit()
+        LOG.debug(f"Saved exercise {exercise_data['id']} to database.")
+
     def sync_exercises(self) -> None:
+        """ 
+        periodic sync of exercises from Hevy API so that 
+        we have access to the exercise ID's for generating workouts later.
+        This creates/updates the exercise_templates table in the local DB. 
+        We will need to pass this table to the LLM API later on when it's 
+        time to generate new workouts because the exercise ID's are required
+        """
         LOG.info("syncing exercises")
-        # Placeholder for future exercise sync logic
-        pass
+        endpoint = "exercise_templates"
+        page = 1
+        pageSize = 100
+        while True:
+            LOG.info(f"Fetching page {page} of exercises...")
+            data = self._make_get_request(endpoint, params={"page": page, "pageSize": pageSize})
+            LOG.debug(f"response: {data}")
+            if not data or not data.get('exercise_templates'):
+                break
+            for exercise in data['exercise_templates']:
+                LOG.debug(f"exercise: {exercise}")
+                self._save_exercise(exercise)
+
+            # Check if there's a next page (Hevy uses page/page_count in response)
+            if page >= data.get('page_count', 1):
+                break
+            page += 1
+
+    """ TODO: Think about method for deleting routines that are no longer listed here  """
+    def _save_routine_folder(self, folder_data) -> None:
+        """Saves a new routine folder or updates an existing one."""
+        query = """
+        INSERT OR REPLACE INTO routine_folders (id, index_no, title, updated_at, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """
+        self.conn.execute(query, (
+            folder_data['id'],
+            folder_data['index'],
+            folder_data['title'],
+            folder_data['updated_at'],
+            folder_data['created_at'],
+         ))
+        self.conn.commit()
+        LOG.debug(f"Saved routine folder {folder_data['id']} to database.")
+
+    def backup_current_routine(self):    
+        """ 
+        We need to POST the current routine to Hevy API under a new name in order to create a backup
+        We'll use a fixed format naming convention so we can find it later: backup_YYYY-MM
+        We also need to amend the index so that the backup doesn't appear at the top of the workout list
+        But the HEVY api doesn't give us a way to set the index, so annoyingly it is going to appear at the top....
+        """
+
+        """
+        Create a routine_folder: POST /routine_folders
+        """
+        current_workout_folder_id, current_workout_folder_name = self.find_active_routine_folder()
+
+        endpoint = "routine_folders"
+        # We need the title of the main workload that we're backing up already
+
+        post_data = {
+            "routine_folder": {
+            "title": f"{current_workout_folder_name}-backup"
+            }
+        }
+
+        response = self._make_post_request(endpoint, post_data)        
+        if response is not None:
+            LOG.info(f"Created new routine folder: { response['routine_folder']['id'] }")
+            new_folder_id = response['routine_folder']['id']
+            #new_folder_id = 2202930
+
+            # Now we have our new routine ID, this is where we need to save the routine
+
+            # do we need to find the current folder id? after all, routines only has the active/recent 
+            query = "SELECT * FROM routines WHERE folder_id = ?"
+            cursor = self.conn.execute(query, (current_workout_folder_id,))
+            routines = cursor.fetchall() # do all at once, or row by row?
+            payloads = self.create_hevy_post_payloads(routines, new_folder_id)
+
+            #LOG.info(f"payloads: {payloads}")
+            #LOG.info(f"{routines}")
+            for payload in payloads:
+                response = self._make_post_request("routines", params=payload)
+                
+                if response and isinstance(response, dict):
+                    # The log shows 'routine' is a LIST inside the dictionary
+                    routine_list = response.get('routine', [])
+                    
+                    if isinstance(routine_list, list) and len(routine_list) > 0:
+                        # Grab the first (and only) routine object in the list
+                        routine_data = routine_list[0]
+                        new_routine_id = routine_data.get('id')
+                        
+                        LOG.info(f"✅ Successfully backed up: {payload['routine']['title']} (New ID: {new_routine_id})")
+                    else:
+                        LOG.error(f"❌ Response 'routine' key was not a list or was empty: {response}")
+                else:
+                    LOG.error(f"❌ Failed to backup routine or unexpected response format: {payload['routine']['title']}")
+                
+                time.sleep(0.5)
+
+    def create_hevy_post_payloads(self, rows, target_folder_id):
+        LOG.info("creating hevy post payloads from routine rows")
+        routines_map = defaultdict(list)
+
+        for row in rows:
+            routines_map[row[0]].append(row)            
+        all_payloads = []
+
+        #for r_id, r_rows in routines_map.items():
+        for r_id, r_rows in reversed(list(routines_map.items())):
+            routine_title = r_rows[0][1]         
+            payload = {
+                "routine": {
+                    "title": routine_title,
+                    "folder_id": target_folder_id, 
+                    "notes": "", 
+                    "exercises": []
+                }
+            }
+
+            for row in r_rows:
+                ex_template_id = row[5]
+                ex_notes       = row[7]
+                ex_index       = row[8] 
+                superset_id    = row[9]
+                raw_sets       = json.loads(row[10]) 
+                rest_seconds   = row[11]
+
+                # Clean sets: Strip 'index' and 'None' values
+                cleaned_sets = []
+                for s in raw_sets:
+                    cleaned_set = {k: v for k, v in s.items() if k != 'index' and v is not None}
+                    cleaned_sets.append(cleaned_set)
+
+                exercise = {
+                    "exercise_template_id": ex_template_id,
+                    "superset_id": superset_id,
+                    "rest_seconds": rest_seconds,
+                    "notes": ex_notes,
+                    "sets": cleaned_sets,
+                    "_sort_index": ex_index # Temporary for sorting
+                }
+                payload["routine"]["exercises"].append(exercise)
+
+            # Sort exercises by the temporary index
+            payload["routine"]["exercises"].sort(key=lambda x: x["_sort_index"])
+            
+            # Final exercise cleanup
+            for ex in payload["routine"]["exercises"]:
+                ex.pop("_sort_index", None)
+                # Clean up None values at exercise level
+                if ex.get("superset_id") is None:
+                    ex.pop("superset_id", None)
+
+            all_payloads.append(payload)
+
+        return all_payloads
+
+    def _save_routine(self, routine_data) -> None:
+        """Saves a new routine or updates an existing one.
+        TODO: Need to think about the primary key here - is it just routine ID, or do we need to
+        include exercise ID and set index to make it unique?
+        Think about Saturdays: I have weighed sled pull 2x but they are different exercises in the same routine.
+        """
+
+        """
+        We have a folder ID (that is what we're going to match against target_id to know we're on the right workout folder
+        routines:
+            exercises:
+                index
+                title
+                notes
+                exercise_template_id
+                superset_id
+                sets:
+                    index
+                    type
+                    weight_kg
+                    reps
+                    distance_meters
+                    duration_seconds                
+                    custom_metric
+                rest_seconds
+        """
+
+        id = routine_data['id']
+        title = routine_data['title']
+        folder_id = routine_data['folder_id']
+        updated_at = routine_data['updated_at']
+        created_at = routine_data['created_at']
+        for exercise in routine_data['exercises']:
+            exercise_template_id = exercise['exercise_template_id']
+            exercise_title = exercise['title']
+            exercise_notes = exercise['notes']
+            exercise_index = exercise['index']
+            superset_id = exercise['superset_id']
+            set_data = json.dumps(exercise['sets'])
+            rest_seconds = exercise['rest_seconds']
+            query = """
+            INSERT OR REPLACE INTO routines (id, title, folder_id, updated_at, created_at, exercise_template_id, exercise_title, exercise_notes, exercise_index, superset_id, set_data, rest_seconds)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            self.conn.execute(query, (
+                id, 
+                title,
+                folder_id,
+                updated_at,
+                created_at,
+                exercise_template_id,
+                exercise_title,
+                exercise_notes,
+                exercise_index,
+                superset_id,
+                set_data,
+                rest_seconds
+            ))
+            self.conn.commit()
+            LOG.debug(f"Saved routine {routine_data['id']} to database.")
+
+    def sync_routines(self) -> None:
+        # get routine_folders
+        # use the title to figure out which one we want to use
+        # then get the routines for that folder
+        LOG.info("syncing workout folders")
+
+        endpoint = "routine_folders"
+        page = 1 # we always start at page 1
+        pageSize = 10 #default - 10 pages
+
+        params = {"page": page, "pageSize": pageSize}
+        data = self._make_get_request(endpoint, params)
+        # TODO: Handle pagination if needed
+        # We're not going through multiple pages... we need to make sure if many workout folders exist that it's newest to oldest
+        # Otherwise, we might miss some!
+        LOG.debug(f"response: {data}")
+        # Let's get all the folders, and then decide which one to use
+        # We'll save them all locally in the DB anyway
+        folders = []
+        if not data or not data.get('routine_folders'):
+            LOG.info("No folders found.")
+            return
+        for folder in data['routine_folders']:
+            LOG.debug(f"folder: {folder}")
+            folders.append(folder)
+            self._save_routine_folder(folder)    
+        #key=lambda x: abs(today - datetime.strptime(x['title'], '%Y-%m'))        
+        target_id, name = self.find_active_routine_folder()
+        if target_id is None:
+            LOG.warning("No active routine folder found.")
+            return
+        else:
+            LOG.info(f"syncing routines for folder ID: {target_id}")
+            endpoint = f"routines"
+            page = 1
+            pageSize = 10
+            routine_data = self._make_get_request(endpoint, params={"page": page, "pageSize": pageSize})
+            if not routine_data or 'routines' not in routine_data:
+                LOG.warning("No routine information found.")
+                return
+            for routine in routine_data['routines']:
+                LOG.debug(f"routine: {routine}")
+                if routine['folder_id'] == target_id:
+                    LOG.info(f"Saving routine {routine['title']} from target folder")
+                    self._save_routine(routine)
+                else:
+                    LOG.debug(f"Skipping routine {routine['title']} from non-target folder")
+       
+    
+def webhook_handler(event, context):
+    """
+    TODO Placeholder for future webhook handling logic.
+    This function will process incoming webhook events from Hevy.
+    """
+
 
 if __name__ == '__main__':
     args = setup()
@@ -513,5 +896,8 @@ if __name__ == '__main__':
 
     if args.getworkouts:
         """ We're going to be downloading from Hevy API to local log """
-        hevydownloader.sync_workouts()
-        hevydownloader._save_to_file() # TEMPORARY DIRECT CALL
+        #hevydownloader.sync_workouts()
+        #hevydownloader._save_to_file() # TEMPORARY DIRECT CALL
+        #hevydownloader.sync_exercises()    
+        hevydownloader.sync_routines() # Think about when to call things like this routine
+        #hevydownloader.backup_current_routine()

@@ -30,3 +30,4 @@ htmlcov/                # HTML coverage reports
 *.log
 *.sqlite
 prompts/system_persona.md
+backup/*

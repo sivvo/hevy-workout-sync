@@ -49,7 +49,7 @@ def test_no_new_events_when_make_request_returns_none():
 
     # Simulate existing last sync -> events path
     hs._get_last_sync_time = lambda: "2022-01-01T00:00:00Z"
-    hs._make_request = lambda endpoint, params=None: None
+    hs._make_get_request = lambda endpoint, params=None: None
 
     called_save = []
     called_update = []
@@ -75,7 +75,7 @@ def test_event_processing_calls_save_and_delete_and_updates_timestamp():
         {"type": "created", "workout": {"id": "w_created", "updated_at": "2022-02-01T10:00:00Z"}},
         {"type": "deleted", "workout": {"id": "w_deleted", "updated_at": "2022-02-02T11:00:00Z"}},
     ]
-    hs._make_request = lambda endpoint, params=None: {"events": events}
+    hs._make_get_request = lambda endpoint, params=None: {"events": events}
 
     saved = []
     deleted = []
