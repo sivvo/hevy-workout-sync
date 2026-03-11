@@ -1,0 +1,2 @@
+- [ ] Change the backup logic to write to Database, not push to Hevy
+- [ ] 

@@ -63,64 +63,64 @@ class HevySync:
         self.body_weight = float(os.getenv('BODY_WEIGHT', '0').strip())
 
         self.category_map = {
-    # --- LEGS ---
-    'squat': 'Legs', 'lunge': 'Legs', 'leg press': 'Legs', 'leg extension': 'Legs', 
-    'leg curl': 'Legs', 'calf': 'Legs', 'glute': 'Legs', 'hip': 'Legs', 
-    'deadlift': 'Legs', 'rdl': 'Legs', 'stiff-legged': 'Legs', 'swing': 'Legs',
-    "Wall Sit": "Legs", "Dumbbell Step Up": "Legs", "Step Up": "Legs", "Barbell Step Up": "Legs",
-    "1-Step Box Jump": "Legs", "Box Jump": "Legs", 'sled push': 'Legs',
+        # --- LEGS ---
+        'squat': 'Legs', 'lunge': 'Legs', 'leg press': 'Legs', 'leg extension': 'Legs', 
+        'leg curl': 'Legs', 'calf': 'Legs', 'glute': 'Legs', 'hip': 'Legs', 
+        'deadlift': 'Legs', 'rdl': 'Legs', 'stiff-legged': 'Legs', 'swing': 'Legs',
+        "Wall Sit": "Legs", "Dumbbell Step Up": "Legs", "Step Up": "Legs", "Barbell Step Up": "Legs",
+        "1-Step Box Jump": "Legs", "Box Jump": "Legs", 'sled push': 'Legs',
 
-    # --- GLUTES ---
-    'hip thrust': 'Glutes', 'glute bridge': 'Glutes', 'kickback': 'Glutes',
-    "Balance Trainer Reverse Hyperextension": "Glutes", "Stability Ball Hyperextension": "Glutes",
-    "Dumbbell Good Morning": "Glutes", "Kettlebell Good Morning": "Glutes", "Good Morning (Barbell)": "Glutes",
-    "Cable Pull Through": "Glutes", "Single Leg Kickback": "Glutes", 
+        # --- GLUTES ---
+        'hip thrust': 'Glutes', 'glute bridge': 'Glutes', 'kickback': 'Glutes',
+        "Balance Trainer Reverse Hyperextension": "Glutes", "Stability Ball Hyperextension": "Glutes",
+        "Dumbbell Good Morning": "Glutes", "Kettlebell Good Morning": "Glutes", "Good Morning (Barbell)": "Glutes",
+        "Cable Pull Through": "Glutes", "Single Leg Kickback": "Glutes", 
 
-    # --- CHEST ---
-    'bench press': 'Chest', 'chest press': 'Chest', 'push up': 'Chest', 
-    'fly': 'Chest', 'hammerstrength chest': 'Chest', 'pec': 'Chest',
-    "Floor Press (Dumbbell)": "Chest", "Single Arm Cable Press": "Chest",
+        # --- CHEST ---
+        'bench press': 'Chest', 'chest press': 'Chest', 'push up': 'Chest', 
+        'fly': 'Chest', 'hammerstrength chest': 'Chest', 'pec': 'Chest',
+        "Floor Press (Dumbbell)": "Chest", "Single Arm Cable Press": "Chest",
 
-    # --- BACK ---
-    'row': 'Back', 'pull up': 'Back', 'chin up': 'Back', 'lat pulldown': 'Back', 
-    'back extension': 'Back', 'superman': 'Back', 'bird dog': 'Back', 'pullover': 'Back',
-    "Prone W’s": "Back", "Prone T’s": "Back", "Prone Y’s": "Back", "Rack Pulls": "Back",
-    "Reverse Grip Pull Down": "Back",
+        # --- BACK ---
+        'row': 'Back', 'pull up': 'Back', 'chin up': 'Back', 'lat pulldown': 'Back', 
+        'back extension': 'Back', 'superman': 'Back', 'bird dog': 'Back', 'pullover': 'Back',
+        "Prone W’s": "Back", "Prone T’s": "Back", "Prone Y’s": "Back", "Rack Pulls": "Back",
+        "Reverse Grip Pull Down": "Back",
 
-    # --- SHOULDERS ---
-    'overhead press': 'Shoulders', 'shoulder press': 'Shoulders', 'lateral raise': 'Shoulders', 
-    'front raise': 'Shoulders', 'rear delt': 'Shoulders', 'face pull': 'Shoulders', 'shrug': 'Shoulders',
-    "Half Kneeling DB Press": "Shoulders", "Arnold Press (Dumbbell)": "Shoulders", "Landmine Press": "Shoulders",
-    "Front Plate Raise": "Shoulders", "Forward Arm Circle": "Shoulders", "Db Trap Raise": "Shoulders", 
-    "Face Down Plate Neck Resistance": "Shoulders", "Kettlebell Jerk": "Shoulders",
+        # --- SHOULDERS ---
+        'overhead press': 'Shoulders', 'shoulder press': 'Shoulders', 'lateral raise': 'Shoulders', 
+        'front raise': 'Shoulders', 'rear delt': 'Shoulders', 'face pull': 'Shoulders', 'shrug': 'Shoulders',
+        "Half Kneeling DB Press": "Shoulders", "Arnold Press (Dumbbell)": "Shoulders", "Landmine Press": "Shoulders",
+        "Front Plate Raise": "Shoulders", "Forward Arm Circle": "Shoulders", "Db Trap Raise": "Shoulders", 
+        "Face Down Plate Neck Resistance": "Shoulders", "Kettlebell Jerk": "Shoulders",
 
-    # --- ARMS ---
-    'bicep': 'Arms', 'curl': 'Arms', 'tricep': 'Arms', 'pushdown': 'Arms', 
-    'dip': 'Arms', 'skull crusher': 'Arms', 'hammer curl': 'Arms',
-    "Skullcrusher (Dumbbell)": "Arms", "Dumbbell Kickbacks": "Arms", "Battle Ropes": "Arms",
-    "Cable Bicep Curl": "Arms", "Cable Tricep Extension": "Arms",
+        # --- ARMS ---
+        'bicep': 'Arms', 'curl': 'Arms', 'tricep': 'Arms', 'pushdown': 'Arms', 
+        'dip': 'Arms', 'skull crusher': 'Arms', 'hammer curl': 'Arms',
+        "Skullcrusher (Dumbbell)": "Arms", "Dumbbell Kickbacks": "Arms", "Battle Ropes": "Arms",
+        "Cable Bicep Curl": "Arms", "Cable Tricep Extension": "Arms",
 
-    # --- Core ---
-    'plank': 'Core', 'crunch': 'Core', 'leg raise': 'Core', 'russian twist': 'Core', 'abs': 'Core',
-    "Balance Trainer Braced Bicycle Kicks": "Core","Balance Trainer Braced Frog Kicks": "Core",
-    "Balance Trainer Mountain Climber": "Core","Balance Trainer Lying Toe Taps": "Core","Cable Wood Chop (Low to High)": "Core",
-    "Kettlebell Sit Up and Press": "Core","Cross Body Mountain Climber": "Core","Standing Cable Core Twist": "Core",
-    "Knee Raise Parallel Bars": "Core","Cable Twist (Up to down)": "Core","Vertical Knee Raise": "Core",
-    "Hanging Knee Raise": "Core","Scissor Crossover Kick": "Core","Alternating Heel Touch": "Core",
-    "Dumbbell Side Bend": "Core","Cable Wood Chop": "Core","Flutter Kicks": "Core","Scissor Kick": "Core",
-    "Toe Touchers": "Core","Kettlebell Halo": "Core","Leg Pull-In": "Core","Ab Wheel": "Core","Dead Bug": "Core","Sit Up": "Core",
-    "Bear Crawl": "Core", "Iron Cross": "Core",
+        # --- Core ---
+        'plank': 'Core', 'crunch': 'Core', 'leg raise': 'Core', 'russian twist': 'Core', 'abs': 'Core',
+        "Balance Trainer Braced Bicycle Kicks": "Core","Balance Trainer Braced Frog Kicks": "Core",
+        "Balance Trainer Mountain Climber": "Core","Balance Trainer Lying Toe Taps": "Core","Cable Wood Chop (Low to High)": "Core",
+        "Kettlebell Sit Up and Press": "Core","Cross Body Mountain Climber": "Core","Standing Cable Core Twist": "Core",
+        "Knee Raise Parallel Bars": "Core","Cable Twist (Up to down)": "Core","Vertical Knee Raise": "Core",
+        "Hanging Knee Raise": "Core","Scissor Crossover Kick": "Core","Alternating Heel Touch": "Core",
+        "Dumbbell Side Bend": "Core","Cable Wood Chop": "Core","Flutter Kicks": "Core","Scissor Kick": "Core",
+        "Toe Touchers": "Core","Kettlebell Halo": "Core","Leg Pull-In": "Core","Ab Wheel": "Core","Dead Bug": "Core","Sit Up": "Core",
+        "Bear Crawl": "Core", "Iron Cross": "Core",
 
-    # --- Grip ---
-    'farmers walk': 'Grip', 'carry': 'Grip', 'dead hang': 'Grip', "Single Arm Bottoms-up Kettlebell Press": "Grip", 
-    "Climbing": "Grip",
+        # --- Grip ---
+        'farmers walk': 'Grip', 'carry': 'Grip', 'dead hang': 'Grip', "Single Arm Bottoms-up Kettlebell Press": "Grip", 
+        "Climbing": "Grip",
 
-    # --- CARDIO & WARM UP ---
-    'walking': 'Cardio', 'treadmill': 'Cardio', "Aerobics": "Cardio",  "Spinning": "Cardio",
-    "Scuba Diving": "Cardio", "Rowing Machine": "Cardio", "Elliptical Trainer": "Cardio", 
+        # --- CARDIO & WARM UP ---
+        'walking': 'Cardio', 'treadmill': 'Cardio', "Aerobics": "Cardio",  "Spinning": "Cardio",
+        "Scuba Diving": "Cardio", "Rowing Machine": "Cardio", "Elliptical Trainer": "Cardio", 
 
-    "Butt Scoot": "Warm Up", "Airplane": "Warm Up", "Cat Cow": "Warm Up", "Stretching": "Warm Up",
-    "Foam Roll Hamstrings": "Warm Up", 'warm up': 'Warm Up',
+        "Butt Scoot": "Warm Up", "Airplane": "Warm Up", "Cat Cow": "Warm Up", "Stretching": "Warm Up",
+        "Foam Roll Hamstrings": "Warm Up", 'warm up': 'Warm Up',
 
         }
 
@@ -289,6 +289,25 @@ class HevySync:
 
         self.conn.execute("""
         CREATE TABLE IF NOT EXISTS routines (
+            id TEXT,
+            title TEXT,
+            folder_id TEXT,
+            updated_at DATETIME,
+            created_at DATETIME,
+            exercise_template_id TEXT,
+            exercise_title TEXT,
+            exercise_notes TEXT,
+            exercise_index INTEGER,
+            superset_id TEXT,
+            set_data TEXT,
+            rest_seconds INTEGER,
+            PRIMARY KEY (id, exercise_index)
+        )
+        """)
+        self.conn.commit()
+ 
+        self.conn.execute("""
+        CREATE TABLE IF NOT EXISTS routines_backup (
             id TEXT,
             title TEXT,
             folder_id TEXT,
@@ -656,6 +675,31 @@ class HevySync:
         self.conn.commit()
         LOG.debug(f"Saved routine folder {folder_data['id']} to database.")
 
+    def _restore_routine_backup(self):
+        """ 
+        The aim here is to restore the current workout in Hevy.
+        Do we just overwrite the current workout, or do we do a line by line diff? 
+        This is a PUT request
+        """
+        endpoint = "v1/routines/{routineId}"
+
+
+
+    def _backup_routine_to_database(self):
+        """ this is going to replace the backup routine below. We won't push a new workout to HEVY, 
+        we'll simply make the backup to the DB
+        """
+        LOG.info("Backing up current routine to database")
+        current_workout_folder_id, current_workout_folder_name = self.find_active_routine_folder()
+        query = "insert into routines_backup select * from routines where folder_id = ?"
+        try:
+            cursor = self.conn.execute(query, (current_workout_folder_id,))
+            self.conn.commit()
+        except sqlite3.IntegrityError:
+            LOG.info("routine already exists")
+        #TODO - think about this routine. do we allow old backups? if so, will we always know what the 
+        # latest folder is?
+        
     def backup_current_routine(self):    
         """ 
         We need to POST the current routine to Hevy API under a new name in order to create a backup
@@ -663,7 +707,7 @@ class HevySync:
         We also need to amend the index so that the backup doesn't appear at the top of the workout list
         But the HEVY api doesn't give us a way to set the index, so annoyingly it is going to appear at the top....
         """
-
+        # TODO - delete this function - it is replaced by the database sync version
         """
         Create a routine_folder: POST /routine_folders
         """
@@ -876,7 +920,7 @@ class HevySync:
                 return
             for routine in routine_data['routines']:
                 LOG.debug(f"routine: {routine}")
-                if routine['folder_id'] == target_id:
+                if int(routine['folder_id']) == int(target_id):
                     LOG.info(f"Saving routine {routine['title']} from target folder")
                     self._save_routine(routine)
                 else:
@@ -889,7 +933,6 @@ def webhook_handler(event, context):
     This function will process incoming webhook events from Hevy.
     """
 
-
 if __name__ == '__main__':
     args = setup()
     #yyyymmdd_regex = re.compile(r'^\d{4}-\d{2}-\d{2}$')
@@ -899,6 +942,7 @@ if __name__ == '__main__':
         """ We're going to be downloading from Hevy API to local log """
         #hevydownloader.sync_workouts()
         #hevydownloader._save_to_file() # TEMPORARY DIRECT CALL
-        #hevydownloader.sync_exercises()    
-        hevydownloader.sync_routines() # Think about when to call things like this routine
+        #hevydownloader.sync_exercises()
+        #hevydownloader.sync_routines() # Think about when to call things like this routine
         #hevydownloader.backup_current_routine()
+        hevydownloader._backup_routine_to_database()
