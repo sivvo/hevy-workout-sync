@@ -860,6 +860,7 @@ class HevySync:
             folders.append(folder)
             self._save_routine_folder(folder)    
         #key=lambda x: abs(today - datetime.strptime(x['title'], '%Y-%m'))        
+        #TODO - check that find_active_routine_folder() is being called correctly - it probably won't return 2 variables
         target_id, name = self.find_active_routine_folder()
         if target_id is None:
             LOG.warning("No active routine folder found.")
