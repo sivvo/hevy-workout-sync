@@ -405,7 +405,6 @@ class HevySync:
         """
         LOG.debug("Entering _save_to_file method")
         
-        # We select specific columns to ensure the CSV header matches the data exactly
         query = """
             SELECT 
                 start_time, end_time, workout_name, exercise_name, exercise_notes, 
@@ -441,7 +440,6 @@ class HevySync:
         except Exception as e:
             LOG.error(f"Error creating CSV file: {e}")
         
-        # Note: Removed self.conn.close() to keep the connection alive for other tasks
         return
 
     def _make_get_request(self, endpoint: str, params =None):
@@ -750,11 +748,11 @@ class HevySync:
                         routine_data = routine_list[0]
                         new_routine_id = routine_data.get('id')
                         
-                        LOG.info(f"✅ Successfully backed up: {payload['routine']['title']} (New ID: {new_routine_id})")
+                        LOG.info(f"Successfully backed up: {payload['routine']['title']} (New ID: {new_routine_id})")
                     else:
-                        LOG.error(f"❌ Response 'routine' key was not a list or was empty: {response}")
+                        LOG.error(f"Response 'routine' key was not a list or was empty: {response}")
                 else:
-                    LOG.error(f"❌ Failed to backup routine or unexpected response format: {payload['routine']['title']}")
+                    LOG.error(f"Failed to backup routine or unexpected response format: {payload['routine']['title']}")
                 
                 time.sleep(0.5)
 

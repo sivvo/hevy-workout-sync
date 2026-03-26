@@ -28,7 +28,6 @@ console_hdlr.setLevel(logging.INFO)
 LOG.addHandler(file_hdlr)
 LOG.addHandler(console_hdlr)
 
-# --- Abstract Base Class for Data Loading (The Strategy) ---
 class DataLoader(ABC):
     """
     Abstract base class to enforce a consistent interface for 
@@ -39,7 +38,6 @@ class DataLoader(ABC):
         """Reads data and returns it as a string formatted for the LLM."""
         pass
 
-# --- Concrete Implementations for Data Sources ---
 """ TODO: Write the CSVLoader method """
 class CSVLoader(DataLoader):
     def __init__(self, file_path: str):
@@ -85,7 +83,6 @@ class SQLiteLoader(DataLoader):
             LOG.error(f"Query execution failed: {e}")
             raise
 
-# --- Gemini Agent Class ---
 class GeminiAgent:
     def __init__(self, api_key: str, model_name: str = "gemini-2.0-flash"): # Updated default model
         # TODO: Move model_name to config so it's not hardcoded
@@ -108,8 +105,7 @@ class GeminiAgent:
             self.system_persona = "You are a helpful assistant." # Fallback
 
     def analyze_knowledge(self, knowledge_context: str, user_instruction: str) -> str:
-        # Explicitly telling the AI about your custom SQL logic
-        
+        # Explicitly telling the AI about  custom SQL logic        
         
         prompt = (
             f"{self.system_persona}\n"
@@ -125,8 +121,7 @@ class GeminiAgent:
             return response.text
         except Exception as e:
             return f"Error: {e}"
-    
-# --- The Orchestrator (Main Controller) ---
+
 class ProcessorApp:
     def __init__(self, data_loader: DataLoader, agent: GeminiAgent):
         self.loader = data_loader
@@ -222,6 +217,4 @@ sets = json.loads(row['set_data']) # Convert back to list
 
 # Gemini Prompting
 prompt = f"In the routine '{row['routine_title']}', for {row['exercise_title']}, the sets are {sets}. Recommend weights for next time."
-
-
 """

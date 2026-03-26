@@ -6,10 +6,8 @@ import os
 from hevysync import HevySync
 import plotly.graph_objects as go
 
-# --- Page Config ---
 st.set_page_config(page_title="Hevy Analytics 2026", layout="wide", page_icon="🏋️")
 
-# --- Helper Functions ---
 @st.cache_resource
 def get_sync_engine(username):
     return HevySync(username=username)
@@ -40,7 +38,6 @@ with st.sidebar:
             st.rerun()
     st.divider()
 
-# --- Initialize Engine & Load Data ---
 sync_engine = get_sync_engine(user_input)
 if not os.path.exists(sync_engine.db):
     st.error(f"### ⚠️ Database for '{user_input}' Not Found")
@@ -48,8 +45,7 @@ if not os.path.exists(sync_engine.db):
 
 data = load_analytics_data(sync_engine)
 
-# --- Global Filtering Logic ---
-# Update exclusions: Keep 'Warm Up' here to block mobility drills if mapped there.
+# Filtering Logic - Keep 'Warm Up' here to block mobility drills if mapped there.
 excluded_categories = ['Cardio', 'Warm Up'] 
 strength_only_df = data[~data['muscle_group'].isin(excluded_categories)]
 
@@ -67,8 +63,6 @@ with st.sidebar:
 
 filtered_strength_df = strength_only_df[strength_only_df['muscle_group'].isin(selected_muscles)]
 
-# --- Common Plotly Configuration ---
-# replaces the deprecated keyword arguments
 chart_config = {
     'displayModeBar': False,
     'responsive': True,
@@ -87,7 +81,6 @@ m1.metric("Lifting Volume", f"{round(filtered_strength_df['volume'].sum()):,} kg
 m2.metric("Total Reps", f"{int(filtered_strength_df['reps'].sum() or 0):,}")
 m3.metric("Lifting Sessions", filtered_strength_df['start_time'].nunique())
 m4.metric("Avg Volume/Set", f"{round(filtered_strength_df['volume'].mean(), 1)} kg")
-
 
 ######################################################################
 # Progressive Overload
@@ -222,7 +215,6 @@ st.plotly_chart(fig_vol, config=chart_config, use_container_width=True)
 ######################################################################
 st.subheader("🎯 Muscle Volume Distribution & Progress")
 
-# 0. Prep Data
 df_radar = filtered_strength_df.copy()
 df_radar['workout_date'] = pd.to_datetime(df_radar['workout_date'])
 latest_date = df_radar['workout_date'].max()
@@ -270,6 +262,7 @@ if radar_mode == "Specific Month":
                 f"<div style='text-align: center; white-space: nowrap; font-weight: bold; padding-top: 5px;'>{current_view.strftime('%B %Y')}</div>", 
                 unsafe_allow_html=True
             )
+            
     # Calculate Ranges based on Session State
     # Current Month Range
     current_start = st.session_state.radar_selected_month

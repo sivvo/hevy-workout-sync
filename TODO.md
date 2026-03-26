@@ -1,2 +1,3 @@
 - [ ] Change the backup logic to write to Database, not push to Hevy
-- [ ] 
+- [ ] Write the restore logic for returning the workout to its original version
+- [ ] Plug in the LLM logic to the interface
